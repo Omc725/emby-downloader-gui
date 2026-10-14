@@ -1,0 +1,9 @@
+build/
+bin/
+*.o
+*.a
+*.so
+emby-downloader-gui
+.vscode/
+.idea/
+*.log
