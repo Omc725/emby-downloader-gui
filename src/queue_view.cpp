@@ -189,6 +189,7 @@ void QueueView::refresh() {
 
     size_t pendingCount = 0;
     size_t activeCount = 0;
+    size_t pausedCount = 0;
     size_t completedCount = 0;
 
     gint storeRows = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(m_listStore), NULL);
@@ -228,6 +229,9 @@ void QueueView::refresh() {
         if (t.status == Emby::TaskStatus::Downloading) {
             statusStr = "Indiriliyor";
             activeCount++;
+        } else if (t.status == Emby::TaskStatus::Paused) {
+            statusStr = "Duraklatildi";
+            pausedCount++;
         } else if (t.status == Emby::TaskStatus::Completed) {
             statusStr = "Tamamlandi";
             completedCount++;
@@ -287,8 +291,11 @@ void QueueView::refresh() {
     }
 
     std::string summary = "Gorevler: " + std::to_string(tasks.size()) + 
-                          " (Aktif: " + std::to_string(activeCount) + 
-                          ", Bekleyen: " + std::to_string(pendingCount) + 
-                          ", Tamamlanan: " + std::to_string(completedCount) + ")";
+                          " (Aktif: " + std::to_string(activeCount);
+    if (pausedCount > 0) {
+        summary += ", Duraklatildi: " + std::to_string(pausedCount);
+    }
+    summary += ", Bekleyen: " + std::to_string(pendingCount) + 
+               ", Tamamlanan: " + std::to_string(completedCount) + ")";
     gtk_label_set_text(GTK_LABEL(m_statusLabel), summary.c_str());
 }
