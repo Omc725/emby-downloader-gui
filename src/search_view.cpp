@@ -1,6 +1,7 @@
 #include "search_view.hpp"
 #include "poster_cache.hpp"
 #include "episode_dialog.hpp"
+#include "movie_dialog.hpp"
 #include <thread>
 
 SearchView::SearchView(GtkWindow* parentWindow, Emby::EmbyEngine& engine)
@@ -67,15 +68,32 @@ void SearchView::buildUi() {
     m_listBox = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(m_listBox), GTK_SELECTION_SINGLE);
 
-    // Satıra tıklandığında kutucuğu işaretle/kaldır
+    // Satıra tıklandığında ilgili detay/seçim diyaloğunu aç
     g_signal_connect(m_listBox, "row-activated", G_CALLBACK(+[](GtkListBox*, GtkListBoxRow* row, gpointer userData) {
         auto* self = static_cast<SearchView*>(userData);
         int idx = gtk_list_box_row_get_index(row);
         if (idx >= 0 && idx < static_cast<int>(self->m_currentRows.size())) {
-            GtkWidget* cb = self->m_currentRows[idx].checkSelect;
-            if (cb) {
-                gboolean active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(cb));
-                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(cb), !active);
+            auto& rowItem = self->m_currentRows[idx];
+            if (rowItem.item.type == Emby::MediaType::Movie) {
+                MovieDialog::show(self->m_parentWindow, self->m_engine, rowItem.item, [self, idx](int count) {
+                    if (idx < static_cast<int>(self->m_currentRows.size())) {
+                        if (self->m_currentRows[idx].btnAction) {
+                            gtk_button_set_label(GTK_BUTTON(self->m_currentRows[idx].btnAction), "Kuyrukta");
+                            gtk_widget_set_sensitive(self->m_currentRows[idx].btnAction, FALSE);
+                        }
+                        if (self->m_currentRows[idx].checkSelect) {
+                            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(self->m_currentRows[idx].checkSelect), TRUE);
+                        }
+                    }
+                    if (self->m_onTaskEnqueued) {
+                        self->m_onTaskEnqueued(count);
+                    }
+                });
+            } else if (rowItem.item.type == Emby::MediaType::Series) {
+                EpisodeDialog::show(self->m_parentWindow, self->m_engine, rowItem.item);
+                if (self->m_onTaskEnqueued) {
+                    self->m_onTaskEnqueued(1);
+                }
             }
         }
     }), this);
@@ -225,8 +243,8 @@ void SearchView::renderResults(const std::vector<Emby::MediaItem>& items) {
 
             gtk_box_pack_start(GTK_BOX(actionBox), btnEpisodes, TRUE, FALSE, 0);
         } else {
-            GtkWidget* btnEnqueue = gtk_button_new_with_label("Kuyruga Ekle");
-            row.btnAction = btnEnqueue;
+            GtkWidget* btnMovie = gtk_button_new_with_label("Surum & Indir...");
+            row.btnAction = btnMovie;
 
             struct MvData {
                 SearchView* view;
@@ -234,38 +252,23 @@ void SearchView::renderResults(const std::vector<Emby::MediaItem>& items) {
                 size_t rowIndex;
             };
             auto* md = new MvData{this, item, i};
-            g_signal_connect_data(btnEnqueue, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer p) {
+            g_signal_connect_data(btnMovie, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer p) {
                 auto* d = static_cast<MvData*>(p);
+                MovieDialog::show(d->view->m_parentWindow, d->view->m_engine, d->it, [d, btn](int count) {
+                    gtk_button_set_label(btn, "Kuyrukta");
+                    gtk_widget_set_sensitive(GTK_WIDGET(btn), FALSE);
 
-                // Eğer sources boşsa getItem ile detayını çek
-                if (d->it.sources.empty()) {
-                    d->it = d->view->m_engine.getItem(d->it.id);
-                }
+                    if (d->rowIndex < d->view->m_currentRows.size() && d->view->m_currentRows[d->rowIndex].checkSelect) {
+                        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(d->view->m_currentRows[d->rowIndex].checkSelect), TRUE);
+                    }
 
-                if (!d->it.sources.empty()) {
-                    d->view->m_engine.enqueueVideo(d->it, d->it.sources[0]);
-                } else {
-                    Emby::MediaSource defaultSrc;
-                    defaultSrc.id = d->it.id;
-                    defaultSrc.container = "mkv";
-                    d->view->m_engine.enqueueVideo(d->it, defaultSrc);
-                }
-
-                d->view->m_engine.getQueue().start();
-
-                gtk_button_set_label(btn, "Kuyrukta");
-                gtk_widget_set_sensitive(GTK_WIDGET(btn), FALSE);
-
-                if (d->rowIndex < d->view->m_currentRows.size() && d->view->m_currentRows[d->rowIndex].checkSelect) {
-                    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(d->view->m_currentRows[d->rowIndex].checkSelect), TRUE);
-                }
-
-                if (d->view->m_onTaskEnqueued) {
-                    d->view->m_onTaskEnqueued(1);
-                }
+                    if (d->view->m_onTaskEnqueued) {
+                        d->view->m_onTaskEnqueued(count);
+                    }
+                });
             }), md, [](gpointer p, GClosure*) { delete static_cast<MvData*>(p); }, static_cast<GConnectFlags>(0));
 
-            gtk_box_pack_start(GTK_BOX(actionBox), btnEnqueue, TRUE, FALSE, 0);
+            gtk_box_pack_start(GTK_BOX(actionBox), btnMovie, TRUE, FALSE, 0);
         }
 
         row.rowBox = rowBox;

@@ -15,6 +15,7 @@ set(SOURCES
     src/poster_cache.cpp
     src/episode_filter.cpp
     src/episode_dialog.cpp
+    src/movie_dialog.cpp
     src/server_dialog.cpp
     src/queue_view.cpp
     src/search_view.cpp
