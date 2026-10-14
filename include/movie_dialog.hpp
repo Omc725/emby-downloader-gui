@@ -6,7 +6,7 @@
 
 class MovieDialog {
 public:
-    using OnEnqueuedCallback = std::function<void(int count)>;
+    using OnEnqueuedCallback = std::function<void(int count, bool directDownload)>;
 
     static void show(
         GtkWindow* parent,
@@ -27,7 +27,7 @@ private:
     void buildUi();
     void populateSourcesList();
     void updateStreamsForSelectedSource(int srcIndex);
-    void enqueueSelected();
+    void enqueueSelected(bool directDownload);
 
     GtkWindow* m_parent;
     Emby::EmbyEngine& m_engine;

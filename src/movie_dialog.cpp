@@ -42,7 +42,9 @@ MovieDialog::MovieDialog(
 
     gint res = gtk_dialog_run(GTK_DIALOG(m_dialog));
     if (res == GTK_RESPONSE_ACCEPT) {
-        enqueueSelected();
+        enqueueSelected(false);
+    } else if (res == GTK_RESPONSE_APPLY) {
+        enqueueSelected(true);
     }
 
     gtk_widget_destroy(m_dialog);
@@ -56,6 +58,7 @@ void MovieDialog::buildUi() {
         static_cast<GtkDialogFlags>(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT),
         "_Iptal", GTK_RESPONSE_CANCEL,
         "_Kuyruga Ekle", GTK_RESPONSE_ACCEPT,
+        "_Direkt Indir", GTK_RESPONSE_APPLY,
         NULL
     );
 
@@ -325,7 +328,7 @@ void MovieDialog::updateStreamsForSelectedSource(int srcIndex) {
     gtk_label_set_text(GTK_LABEL(m_lblDetails), details.c_str());
 }
 
-void MovieDialog::enqueueSelected() {
+void MovieDialog::enqueueSelected(bool directDownload) {
     if (m_selectedSourceIndex < 0 || m_selectedSourceIndex >= static_cast<int>(m_movieItem.sources.size())) {
         return;
     }
@@ -361,7 +364,7 @@ void MovieDialog::enqueueSelected() {
     if (count > 0) {
         m_engine.getQueue().start();
         if (m_onEnqueued) {
-            m_onEnqueued(count);
+            m_onEnqueued(count, directDownload);
         }
     }
 }

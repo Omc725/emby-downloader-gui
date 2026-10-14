@@ -15,18 +15,21 @@ enum {
 void EpisodeDialog::show(
     GtkWindow* parent,
     Emby::EmbyEngine& engine,
-    const Emby::MediaItem& seriesItem
+    const Emby::MediaItem& seriesItem,
+    OnEnqueuedCallback onEnqueued
 ) {
-    EpisodeDialog dialog(parent, engine, seriesItem);
+    EpisodeDialog dialog(parent, engine, seriesItem, onEnqueued);
 }
 
 EpisodeDialog::EpisodeDialog(
     GtkWindow* parent,
     Emby::EmbyEngine& engine,
-    const Emby::MediaItem& seriesItem
+    const Emby::MediaItem& seriesItem,
+    OnEnqueuedCallback onEnqueued
 ) : m_parent(parent),
     m_engine(engine),
-    m_seriesItem(seriesItem)
+    m_seriesItem(seriesItem),
+    m_onEnqueued(onEnqueued)
 {
     buildUi();
     loadEpisodes();
@@ -34,7 +37,9 @@ EpisodeDialog::EpisodeDialog(
 
     gint res = gtk_dialog_run(GTK_DIALOG(m_dialog));
     if (res == GTK_RESPONSE_ACCEPT) {
-        enqueueSelected();
+        enqueueSelected(false);
+    } else if (res == GTK_RESPONSE_APPLY) {
+        enqueueSelected(true);
     }
 
     gtk_widget_destroy(m_dialog);
@@ -48,6 +53,7 @@ void EpisodeDialog::buildUi() {
         static_cast<GtkDialogFlags>(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT),
         "_Iptal", GTK_RESPONSE_CANCEL,
         "_Kuyruga Ekle", GTK_RESPONSE_ACCEPT,
+        "_Direkt Indir", GTK_RESPONSE_APPLY,
         NULL
     );
 
@@ -320,7 +326,7 @@ void EpisodeDialog::updatePreviewModel() {
     gtk_label_set_text(GTK_LABEL(m_countLabel), countStr.c_str());
 }
 
-void EpisodeDialog::enqueueSelected() {
+void EpisodeDialog::enqueueSelected(bool directDownload) {
     bool dlVideo = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(m_checkVideo));
     bool dlAudio = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(m_checkAudio));
     bool dlSub = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(m_checkSubtitle));
@@ -331,6 +337,7 @@ void EpisodeDialog::enqueueSelected() {
     int subLangIdx = gtk_combo_box_get_active(GTK_COMBO_BOX(m_subLangCombo));
     std::string targetSubLang = (subLangIdx == 1) ? "tur" : ((subLangIdx == 2) ? "eng" : "");
 
+    int count = 0;
     for (const auto& row : m_displayedRows) {
         if (!row.selected) continue;
         if (row.item.sources.empty()) continue;
@@ -339,6 +346,7 @@ void EpisodeDialog::enqueueSelected() {
 
         if (dlVideo) {
             m_engine.enqueueVideo(row.item, src);
+            count++;
         }
 
         if (dlAudio && !src.audioStreams.empty()) {
@@ -352,6 +360,7 @@ void EpisodeDialog::enqueueSelected() {
                 }
             }
             m_engine.enqueueAudio(row.item, src, *chosenAudio);
+            count++;
         }
 
         if (dlSub && !src.subtitleStreams.empty()) {
@@ -365,8 +374,14 @@ void EpisodeDialog::enqueueSelected() {
                 }
             }
             m_engine.enqueueSubtitle(row.item, src, *chosenSub);
+            count++;
         }
     }
 
-    m_engine.getQueue().start();
+    if (count > 0) {
+        m_engine.getQueue().start();
+        if (m_onEnqueued) {
+            m_onEnqueued(count, directDownload);
+        }
+    }
 }

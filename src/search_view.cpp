@@ -75,7 +75,7 @@ void SearchView::buildUi() {
         if (idx >= 0 && idx < static_cast<int>(self->m_currentRows.size())) {
             auto& rowItem = self->m_currentRows[idx];
             if (rowItem.item.type == Emby::MediaType::Movie) {
-                MovieDialog::show(self->m_parentWindow, self->m_engine, rowItem.item, [self, idx](int count) {
+                MovieDialog::show(self->m_parentWindow, self->m_engine, rowItem.item, [self, idx](int count, bool direct) {
                     if (idx < static_cast<int>(self->m_currentRows.size())) {
                         if (self->m_currentRows[idx].btnAction) {
                             gtk_button_set_label(GTK_BUTTON(self->m_currentRows[idx].btnAction), "Kuyrukta");
@@ -86,14 +86,23 @@ void SearchView::buildUi() {
                         }
                     }
                     if (self->m_onTaskEnqueued) {
-                        self->m_onTaskEnqueued(count);
+                        self->m_onTaskEnqueued(count, direct);
                     }
                 });
             } else if (rowItem.item.type == Emby::MediaType::Series) {
-                EpisodeDialog::show(self->m_parentWindow, self->m_engine, rowItem.item);
-                if (self->m_onTaskEnqueued) {
-                    self->m_onTaskEnqueued(1);
-                }
+                EpisodeDialog::show(self->m_parentWindow, self->m_engine, rowItem.item, [self, idx](int count, bool direct) {
+                    if (idx < static_cast<int>(self->m_currentRows.size())) {
+                        if (self->m_currentRows[idx].btnAction) {
+                            gtk_button_set_label(GTK_BUTTON(self->m_currentRows[idx].btnAction), "Kuyrukta");
+                        }
+                        if (self->m_currentRows[idx].checkSelect) {
+                            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(self->m_currentRows[idx].checkSelect), TRUE);
+                        }
+                    }
+                    if (self->m_onTaskEnqueued) {
+                        self->m_onTaskEnqueued(count, direct);
+                    }
+                });
             }
         }
     }), this);
@@ -231,14 +240,20 @@ void SearchView::renderResults(const std::vector<Emby::MediaItem>& items) {
             struct EpData {
                 SearchView* view;
                 Emby::MediaItem it;
+                size_t rowIndex;
             };
-            auto* ed = new EpData{this, item};
-            g_signal_connect_data(btnEpisodes, "clicked", G_CALLBACK(+[](GtkButton*, gpointer p) {
+            auto* ed = new EpData{this, item, i};
+            g_signal_connect_data(btnEpisodes, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer p) {
                 auto* d = static_cast<EpData*>(p);
-                EpisodeDialog::show(d->view->m_parentWindow, d->view->m_engine, d->it);
-                if (d->view->m_onTaskEnqueued) {
-                    d->view->m_onTaskEnqueued(1);
-                }
+                EpisodeDialog::show(d->view->m_parentWindow, d->view->m_engine, d->it, [d, btn](int count, bool direct) {
+                    gtk_button_set_label(btn, "Kuyrukta");
+                    if (d->rowIndex < d->view->m_currentRows.size() && d->view->m_currentRows[d->rowIndex].checkSelect) {
+                        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(d->view->m_currentRows[d->rowIndex].checkSelect), TRUE);
+                    }
+                    if (d->view->m_onTaskEnqueued) {
+                        d->view->m_onTaskEnqueued(count, direct);
+                    }
+                });
             }), ed, [](gpointer p, GClosure*) { delete static_cast<EpData*>(p); }, static_cast<GConnectFlags>(0));
 
             gtk_box_pack_start(GTK_BOX(actionBox), btnEpisodes, TRUE, FALSE, 0);
@@ -254,7 +269,7 @@ void SearchView::renderResults(const std::vector<Emby::MediaItem>& items) {
             auto* md = new MvData{this, item, i};
             g_signal_connect_data(btnMovie, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer p) {
                 auto* d = static_cast<MvData*>(p);
-                MovieDialog::show(d->view->m_parentWindow, d->view->m_engine, d->it, [d, btn](int count) {
+                MovieDialog::show(d->view->m_parentWindow, d->view->m_engine, d->it, [d, btn](int count, bool direct) {
                     gtk_button_set_label(btn, "Kuyrukta");
                     gtk_widget_set_sensitive(GTK_WIDGET(btn), FALSE);
 
@@ -263,7 +278,7 @@ void SearchView::renderResults(const std::vector<Emby::MediaItem>& items) {
                     }
 
                     if (d->view->m_onTaskEnqueued) {
-                        d->view->m_onTaskEnqueued(count);
+                        d->view->m_onTaskEnqueued(count, direct);
                     }
                 });
             }), md, [](gpointer p, GClosure*) { delete static_cast<MvData*>(p); }, static_cast<GConnectFlags>(0));
@@ -337,7 +352,7 @@ void SearchView::enqueueBulkSelected() {
         gtk_label_set_text(GTK_LABEL(m_lblResultsCount), msg.c_str());
 
         if (m_onTaskEnqueued) {
-            m_onTaskEnqueued(totalEnqueued);
+            m_onTaskEnqueued(totalEnqueued, false);
         }
     } else {
         gtk_label_set_text(GTK_LABEL(m_lblResultsCount), "Lutfen once kuyruga eklenecek ogeleri secin.");

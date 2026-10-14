@@ -7,7 +7,7 @@
 
 class SearchView {
 public:
-    using OnTaskEnqueuedCallback = std::function<void(int count)>;
+    using OnTaskEnqueuedCallback = std::function<void(int count, bool directDownload)>;
 
     explicit SearchView(GtkWindow* parentWindow, Emby::EmbyEngine& engine);
     ~SearchView() = default;

@@ -7,10 +7,13 @@
 
 class EpisodeDialog {
 public:
+    using OnEnqueuedCallback = std::function<void(int count, bool directDownload)>;
+
     static void show(
         GtkWindow* parent,
         Emby::EmbyEngine& engine,
-        const Emby::MediaItem& seriesItem
+        const Emby::MediaItem& seriesItem,
+        OnEnqueuedCallback onEnqueued = nullptr
     );
 
 private:
@@ -19,18 +22,24 @@ private:
         Emby::MediaItem item;
     };
 
-    EpisodeDialog(GtkWindow* parent, Emby::EmbyEngine& engine, const Emby::MediaItem& seriesItem);
+    EpisodeDialog(
+        GtkWindow* parent,
+        Emby::EmbyEngine& engine,
+        const Emby::MediaItem& seriesItem,
+        OnEnqueuedCallback onEnqueued
+    );
     ~EpisodeDialog() = default;
 
     void buildUi();
     void loadEpisodes();
     void applyFilter();
     void updatePreviewModel();
-    void enqueueSelected();
+    void enqueueSelected(bool directDownload);
 
     GtkWindow* m_parent;
     Emby::EmbyEngine& m_engine;
     Emby::MediaItem m_seriesItem;
+    OnEnqueuedCallback m_onEnqueued;
 
     GtkWidget* m_dialog = nullptr;
     GtkWidget* m_seasonCombo = nullptr;
