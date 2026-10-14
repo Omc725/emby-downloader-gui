@@ -25,7 +25,8 @@ private:
     ~MovieDialog() = default;
 
     void buildUi();
-    void updateStreamsForSelectedSource();
+    void populateSourcesList();
+    void updateStreamsForSelectedSource(int srcIndex);
     void enqueueSelected();
 
     GtkWindow* m_parent;
@@ -33,8 +34,11 @@ private:
     Emby::MediaItem m_movieItem;
     OnEnqueuedCallback m_onEnqueued;
 
+    int m_selectedSourceIndex = 0;
+
     GtkWidget* m_dialog = nullptr;
-    GtkWidget* m_sourceCombo = nullptr;
+    GtkWidget* m_treeView = nullptr;
+    GtkListStore* m_listStore = nullptr;
     GtkWidget* m_checkVideo = nullptr;
     GtkWidget* m_checkAudio = nullptr;
     GtkWidget* m_audioCombo = nullptr;
