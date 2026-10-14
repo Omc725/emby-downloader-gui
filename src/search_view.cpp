@@ -65,7 +65,20 @@ void SearchView::buildUi() {
 
     // Sonuç Listesi (GtkListBox)
     m_listBox = gtk_list_box_new();
-    gtk_list_box_set_selection_mode(GTK_LIST_BOX(m_listBox), GTK_SELECTION_NONE);
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(m_listBox), GTK_SELECTION_SINGLE);
+
+    // Satıra tıklandığında kutucuğu işaretle/kaldır
+    g_signal_connect(m_listBox, "row-activated", G_CALLBACK(+[](GtkListBox*, GtkListBoxRow* row, gpointer userData) {
+        auto* self = static_cast<SearchView*>(userData);
+        int idx = gtk_list_box_row_get_index(row);
+        if (idx >= 0 && idx < static_cast<int>(self->m_currentRows.size())) {
+            GtkWidget* cb = self->m_currentRows[idx].checkSelect;
+            if (cb) {
+                gboolean active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(cb));
+                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(cb), !active);
+            }
+        }
+    }), this);
 
     GtkWidget* scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
@@ -114,7 +127,6 @@ void SearchView::performSearch() {
 }
 
 void SearchView::renderResults(const std::vector<Emby::MediaItem>& items) {
-    // Önceki satırları temizle
     GList* children = gtk_container_get_children(GTK_CONTAINER(m_listBox));
     for (GList* iter = children; iter != NULL; iter = g_list_next(iter)) {
         gtk_widget_destroy(GTK_WIDGET(iter->data));
@@ -129,7 +141,8 @@ void SearchView::renderResults(const std::vector<Emby::MediaItem>& items) {
     std::string token = m_engine.getClient().getToken();
     std::string prefix = m_engine.getClient().getPrefix();
 
-    for (const auto& item : items) {
+    for (size_t i = 0; i < items.size(); ++i) {
+        const auto& item = items[i];
         SearchItemRow row;
         row.item = item;
 
@@ -195,6 +208,8 @@ void SearchView::renderResults(const std::vector<Emby::MediaItem>& items) {
 
         if (item.type == Emby::MediaType::Series) {
             GtkWidget* btnEpisodes = gtk_button_new_with_label("Bolumleri Sec...");
+            row.btnAction = btnEpisodes;
+
             struct EpData {
                 SearchView* view;
                 Emby::MediaItem it;
@@ -203,21 +218,50 @@ void SearchView::renderResults(const std::vector<Emby::MediaItem>& items) {
             g_signal_connect_data(btnEpisodes, "clicked", G_CALLBACK(+[](GtkButton*, gpointer p) {
                 auto* d = static_cast<EpData*>(p);
                 EpisodeDialog::show(d->view->m_parentWindow, d->view->m_engine, d->it);
+                if (d->view->m_onTaskEnqueued) {
+                    d->view->m_onTaskEnqueued(1);
+                }
             }), ed, [](gpointer p, GClosure*) { delete static_cast<EpData*>(p); }, static_cast<GConnectFlags>(0));
 
             gtk_box_pack_start(GTK_BOX(actionBox), btnEpisodes, TRUE, FALSE, 0);
         } else {
             GtkWidget* btnEnqueue = gtk_button_new_with_label("Kuyruga Ekle");
+            row.btnAction = btnEnqueue;
+
             struct MvData {
                 SearchView* view;
                 Emby::MediaItem it;
+                size_t rowIndex;
             };
-            auto* md = new MvData{this, item};
-            g_signal_connect_data(btnEnqueue, "clicked", G_CALLBACK(+[](GtkButton*, gpointer p) {
+            auto* md = new MvData{this, item, i};
+            g_signal_connect_data(btnEnqueue, "clicked", G_CALLBACK(+[](GtkButton* btn, gpointer p) {
                 auto* d = static_cast<MvData*>(p);
+
+                // Eğer sources boşsa getItem ile detayını çek
+                if (d->it.sources.empty()) {
+                    d->it = d->view->m_engine.getItem(d->it.id);
+                }
+
                 if (!d->it.sources.empty()) {
                     d->view->m_engine.enqueueVideo(d->it, d->it.sources[0]);
-                    d->view->m_engine.getQueue().start();
+                } else {
+                    Emby::MediaSource defaultSrc;
+                    defaultSrc.id = d->it.id;
+                    defaultSrc.container = "mkv";
+                    d->view->m_engine.enqueueVideo(d->it, defaultSrc);
+                }
+
+                d->view->m_engine.getQueue().start();
+
+                gtk_button_set_label(btn, "Kuyrukta");
+                gtk_widget_set_sensitive(GTK_WIDGET(btn), FALSE);
+
+                if (d->rowIndex < d->view->m_currentRows.size() && d->view->m_currentRows[d->rowIndex].checkSelect) {
+                    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(d->view->m_currentRows[d->rowIndex].checkSelect), TRUE);
+                }
+
+                if (d->view->m_onTaskEnqueued) {
+                    d->view->m_onTaskEnqueued(1);
                 }
             }), md, [](gpointer p, GClosure*) { delete static_cast<MvData*>(p); }, static_cast<GConnectFlags>(0));
 
@@ -234,25 +278,65 @@ void SearchView::renderResults(const std::vector<Emby::MediaItem>& items) {
 }
 
 void SearchView::enqueueBulkSelected() {
-    for (const auto& row : m_currentRows) {
+    int totalEnqueued = 0;
+
+    for (auto& row : m_currentRows) {
         if (!row.checkSelect || !gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(row.checkSelect))) {
             continue;
         }
 
         if (row.item.type == Emby::MediaType::Movie) {
+            if (row.item.sources.empty()) {
+                row.item = m_engine.getItem(row.item.id);
+            }
+
             if (!row.item.sources.empty()) {
                 m_engine.enqueueVideo(row.item, row.item.sources[0]);
+                totalEnqueued++;
+            } else {
+                Emby::MediaSource defaultSrc;
+                defaultSrc.id = row.item.id;
+                defaultSrc.container = "mkv";
+                m_engine.enqueueVideo(row.item, defaultSrc);
+                totalEnqueued++;
+            }
+
+            if (row.btnAction) {
+                gtk_button_set_label(GTK_BUTTON(row.btnAction), "Kuyrukta");
+                gtk_widget_set_sensitive(row.btnAction, FALSE);
             }
         } else if (row.item.type == Emby::MediaType::Series) {
-            // Dizi için tüm bölümleri otomatik kuyruğa ekle
             auto episodes = m_engine.getClient().getEpisodes(row.item.id);
-            for (const auto& ep : episodes) {
+            for (auto& ep : episodes) {
+                if (ep.sources.empty()) {
+                    ep = m_engine.getItem(ep.id);
+                }
                 if (!ep.sources.empty()) {
                     m_engine.enqueueVideo(ep, ep.sources[0]);
+                    totalEnqueued++;
+                } else {
+                    Emby::MediaSource defaultSrc;
+                    defaultSrc.id = ep.id;
+                    defaultSrc.container = "mkv";
+                    m_engine.enqueueVideo(ep, defaultSrc);
+                    totalEnqueued++;
                 }
+            }
+            if (row.btnAction) {
+                gtk_button_set_label(GTK_BUTTON(row.btnAction), "Kuyrukta");
             }
         }
     }
 
-    m_engine.getQueue().start();
+    if (totalEnqueued > 0) {
+        m_engine.getQueue().start();
+        std::string msg = std::to_string(totalEnqueued) + " oge basariyla kuyruga eklendi!";
+        gtk_label_set_text(GTK_LABEL(m_lblResultsCount), msg.c_str());
+
+        if (m_onTaskEnqueued) {
+            m_onTaskEnqueued(totalEnqueued);
+        }
+    } else {
+        gtk_label_set_text(GTK_LABEL(m_lblResultsCount), "Lutfen once kuyruga eklenecek ogeleri secin.");
+    }
 }

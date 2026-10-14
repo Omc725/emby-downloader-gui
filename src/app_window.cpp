@@ -68,6 +68,13 @@ void AppWindow::buildUi(GtkApplication* app) {
     GtkWidget* tabLabel2 = gtk_label_new("Indirme Kuyrugu");
     gtk_notebook_append_page(GTK_NOTEBOOK(m_notebook), m_queueView->getWidget(), tabLabel2);
 
+    m_searchView->setOnTaskEnqueued([this, tabLabel2](int /*count*/) {
+        m_queueView->refresh();
+        size_t pending = m_engine.getQueue().getPendingCount();
+        std::string tabTitle = "Indirme Kuyrugu (" + std::to_string(pending) + ")";
+        gtk_label_set_text(GTK_LABEL(tabLabel2), tabTitle.c_str());
+    });
+
     // Alt Durum Çubuğu
     GtkWidget* bottomBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 15);
     gtk_container_set_border_width(GTK_CONTAINER(bottomBar), 4);
